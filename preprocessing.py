@@ -16,7 +16,13 @@ class dataset:
 
     def get_filter_data(self, task_path):
         raw = mne.io.read_raw_edf(task_path,preload=True, verbose='WARNING')
-        #preprocess the data
+        raw.filter(1., 40., fir_design='firwin')
+        # Removing eye blinks
+        ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
+        ica.fit(raw)
+        eog_indices, _ = ica.find_bads_eog(raw)
+        ica.exclude = eog_indices
+        raw = ica.apply(raw)
 
         return raw
 
@@ -36,7 +42,7 @@ class dataset:
         df["target"] = np.array(codeArray).T
         return df
 
-    def fuse_DataFrame(self, global_df : pd.DataFrame, next_df : pd.DataFrame):
+    def fuse_DataFrame(self, global_df : pd.DataFrame, next_df : pd.DataFrame) -> pd.DataFrame:
         if global_df is None:
             return next_df
         if not all(global_df.columns == next_df.columns):
@@ -46,12 +52,37 @@ class dataset:
     def preprocess_tasks(self, subject_path):
         tasks_path = sorted(glob.glob(os.path.join(subject_path, f"{subject_path[-4:]}R[0-9][0-9].edf")))
         DataFrame = None
+        classes = {
+            0: "Rest",
+            1: "Real Left Fist Motion",
+            2: "Real Right Fist Motion",
+            3: "Imagined Left Fist Motion",
+            4: "Imagined Right Fist Motion",
+            5: "Real Both Fists Motion",
+            6: "Real Both Feet Motion",
+            7: "Imagined Both Fists Motion",
+            8: "Imagined Both Feet Motion"
+        }
+        mapping = {
+            0: {'T0': classes[0], 'T1': classes[1], 'T2': classes[2]},
+            1: {'T0': classes[0], 'T1': classes[3], 'T2': classes[4]},
+            2: {'T0': classes[0], 'T1': classes[5], 'T2': classes[6]},
+            3: {'T0': classes[0], 'T1': classes[7], 'T2': classes[8]}
+        }
+        count = -2
         for task_path in tasks_path:
             if not os.path.exists(task_path):
                 raise Exception(f"{task_path} not found!")
             filder_mne_data = self.get_filter_data(task_path)
             # change target to the named files
-            DataFrame = self.fuse_DataFrame(DataFrame, self.get_dataFrame(filder_mne_data))
+            df = self.get_dataFrame(filder_mne_data)
+            if count >= 0:
+                df['target'] = df['target'].replace(mapping[count % 4])
+            else:
+                df['target'] = df['target'].replace({'T0':classes[0]})
+            count = count + 1
+            DataFrame = self.fuse_DataFrame(DataFrame, df)
+            
 
         DataFrame.to_csv("/nfs/homes/amaach/Desktop/Total-perspective-vortex/datatest.csv", index=False) # to change
 
