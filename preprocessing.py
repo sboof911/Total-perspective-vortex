@@ -7,6 +7,12 @@ class preprocess:
     def __init__(self, plot=False):
         self._dict = dict(T0=0, T1=1, T2=2)
         self._plot = plot
+        mne.set_log_level('WARNING')
+        
+    def set_dict(self, dict_value):
+        if not isinstance(dict_value, dict):
+            raise Exception(f"dict_value must be dict. Value entered: {type(dict_value)}")
+        self._dict = dict_value
 
     def fetch_events(self, data_filtered, tmin=-1., tmax=4.):
         event_ids = self._dict
@@ -45,21 +51,23 @@ class preprocess:
         dataset = []
         subject = []
         files = sorted(glob.glob(os.path.join(subject_folder_path, f"{subject_folder_path[-4:]}R[0-9][0-9].edf")))
+        if len(files) == 0:
+            raise Exception("No tasks found!")
+
         for file in files:
-            if file.endswith(".edf"):
-                subject_data = mne.io.read_raw_edf(os.path.join(subject_folder_path, file), preload=True)
-                if sfreq is None:
-                    sfreq = subject_data.info["sfreq"]
-                if subject_data.info["sfreq"] == sfreq:
-                    subject.append(subject_data)
-                else:
-                    break
+            subject_data = mne.io.read_raw_edf(os.path.join(subject_folder_path, file), preload=True)
+            if sfreq is None:
+                sfreq = subject_data.info["sfreq"]
+            if subject_data.info["sfreq"] == sfreq:
+                subject.append(subject_data)
+            else:
+                raise Exception("A task has different samples frequence number!")
         dataset.append(mne.concatenate_raws(subject))
         raw = mne.io.concatenate_raws(dataset)
         return raw
 
     def process(self, subject_folder_path):
-        raw = self.fetch_data(subject_folder_path=subject_folder_path)
+        raw = self.fetch_data(subject_folder_path)
         raw = self.prepare_data(raw)
         fildered_data = self.filter_data(raw)
         return self.fetch_events(fildered_data)
