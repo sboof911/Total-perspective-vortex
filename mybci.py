@@ -1,6 +1,7 @@
 import argparse, os
 from train import train, training
 from preprocessing import preprocess
+from predict import predict
 
 def get_data_path():
     data_path = os.path.dirname(os.path.abspath(__file__)) + "/data_path.txt"
@@ -34,28 +35,27 @@ def check_args(args):
         if args.subject_num == 0 or args.task_num == 0:
             raise Exception("You need to select the subject and the task for predcition or plotting!")
 
-def lanch_tasks(preprocessmodule : preprocess, train_module : train, args, folder_path):
+def lanch_tasks(preprocessmodule : preprocess, args, folder_path):
     if not args.predict:
         if args.subject_num > 0:
             subject_path = f"{folder_path}/S{args.subject_num:03}"
             if args.task_num > 0:
                 raise Exception("It s stupid to train the module on one task lol")
-            _, scores = training(preprocessmodule, train_module, subject_path)
+            _, scores = training(preprocessmodule, subject_path)
             print(scores)
             print(f'cross_val_score: {scores.mean()}')
         else:
-            accuracy, _ = training(preprocessmodule, train_module, folder_path, True)
-            print(f'Test Data accuracy: {accuracy:.4f}')
+            training(preprocessmodule, folder_path, True)
+    else:
+        predict(preprocessmodule, args, folder_path)
 
 def lanch_model(args):
     preprocessmodule = preprocess(args.plot)
     folder_path = get_data_path()
 
     if not args.plot:
-        train_module = train()
         kwargs = {
             "preprocessmodule":preprocessmodule,
-            "train_module":train_module,
             "folder_path":folder_path,
             "args":args
         }
@@ -71,4 +71,5 @@ def lanch_model(args):
 
 if __name__ == '__main__':
     args = args_parse()
+    check_args(args)
     lanch_model(args)
