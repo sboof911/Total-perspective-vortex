@@ -3,7 +3,6 @@ from mne.decoding import CSP
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import cross_val_score, StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
@@ -14,12 +13,12 @@ import pickle
 
 def get_classifiers():
     return [
-        OneVsRestClassifier(LogisticRegression(penalty='l1', solver='liblinear')),
+        OneVsRestClassifier(MLPClassifier(max_iter=2000)),
+        OneVsRestClassifier(LogisticRegression()),
         OneVsRestClassifier(SVC(kernel='linear', probability=True)),
         OneVsRestClassifier(RandomForestClassifier(random_state=42)),
         OneVsRestClassifier(GradientBoostingClassifier()),
-        OneVsRestClassifier(KNeighborsClassifier()),
-        OneVsRestClassifier(MLPClassifier())
+        OneVsRestClassifier(LogisticRegression(penalty='l1', solver='liblinear'))
     ]
 
 class train:
@@ -53,8 +52,8 @@ class train:
 def training_All_Data(preprocessmodule : preprocess, path):
     classifiers = get_classifiers()
     train_modules = []
-    print("Training on all subjects...")
-    subjects_path = sorted(glob.glob(os.path.join(path, "S[0-9][0-9][0-9]")))
+    print("Training on all classifiers...")
+    subjects_path = sorted(glob.glob(os.path.join(path, "S[1-9][0-9][0-9]"))) if not isinstance(path, list) else path
     experiments_accuracies = []
     for key, classifier in enumerate(classifiers):
         train_module = train(classifier)
@@ -65,28 +64,32 @@ def training_All_Data(preprocessmodule : preprocess, path):
             labels, epochs_data_train = preprocessmodule.process(subject_path)
             accuracy, _ = train_module.fit(epochs_data_train, labels)
             accuracies.append(accuracy)
-            print(f"experiment {key}/{len(classifiers)}: subject {subject_path[-4:]}: accuracy = {accuracy:.4f}")
+            print(f"experiment {key+1}/{len(classifiers)}: subject {subject_path[-4:]}: accuracy = {accuracy:.4f}")
         mean_accuracy = np.mean(accuracies)
-        print(f"Mean accuracy of experiment {key}: {mean_accuracy:.4f}")
+        print(f"Mean accuracy of experiment {key+1}: {mean_accuracy:.4f}")
         experiments_accuracies.append(mean_accuracy)
         train_modules.append(train_modules)
 
     mean_accuracy = np.mean(experiments_accuracies)
     print("Mean accuracy of the six different experiments for all 109 subjects:")
     for key, accuracy in enumerate(experiments_accuracies):
-        print(f"experiment {key}/{len(experiments_accuracies)}:{" "*10} accuracy = {accuracy:.4f}")
+        print(f"experiment {key+1}/{len(experiments_accuracies)}:{" "*10} accuracy = {accuracy:.4f}")
     print("", f"Mean accuracy of 6 experiments: {mean_accuracy}", sep='\n')
     best_module : train = train_modules[experiments_accuracies.index(max(experiments_accuracies))]
     return best_module
 
-def training(preprocessmodule : preprocess, path, multiple_subjects=False):
-    if not multiple_subjects:
+def training(preprocessmodule : preprocess, path, multiple_classifiers=False):
+    if not multiple_classifiers:
         train_module = train()
-        labels, epochs_data_train = preprocessmodule.process(subject_path)
-        return train_module.fit(epochs_data_train, labels)
+        scores = []
+        for subject_path in path:
+            labels, epochs_data_train = preprocessmodule.process(subject_path)
+            _, score = train_module.fit(epochs_data_train, labels)
+            scores.append(score)
+        return np.mean(scores, axis=0) if len(scores) > 1 else scores[0]
     else:
-        best_module, mean_accuracy = training_All_Data(preprocessmodule, path)
+        best_module = training_All_Data(preprocessmodule, path)
 
         with open('model.pkl', 'wb') as file:
             pickle.dump(best_module.pipeline, file)
-        return mean_accuracy
+        return None

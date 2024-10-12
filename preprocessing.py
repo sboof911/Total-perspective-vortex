@@ -5,24 +5,21 @@ from mne.datasets import eegbci
 import numpy as np
 
 class preprocess:
-    def __init__(self, plot=False):
-        self._classes = [
-            "Rest",
-            "Open left fist",
-            "Open right fist",
-            "Imagine left fist",
-            "Imagine right fist",
-            "Open both fists",
-            "Open both feet",
-            "Imagine both fists",
-            "Imagine both feet"
-        ]
-        self._dict = {classe:key for key, classe in enumerate(self._classes)}
-        self._plot = plot
+    def __init__(self):
+        self._dict = dict(T0=0, T1=1, T2=2)
+        self._plot = False
         mne.set_log_level('WARNING')
 
+    def set_plot(self, plot):
+        self._plot = plot
+
+    def set_dict(self, dict_value):
+        if not isinstance(dict_value, dict):
+            raise Exception(f"dict_value must be dict. Value entered: {type(dict_value)}")
+        self._dict = dict_value
+
     def get_classes_name(self, filepath : str):
-        dot = filepath.find('.')
+        dot = filepath.rfind('.')
         file_num = int(filepath[dot-2:dot])
         if file_num <= 2:
             return dict(T0=self._classes[0])
@@ -31,25 +28,6 @@ class preprocess:
             return dict(T0=self._classes[0],
                         T1=self._classes[1+2*(count%4)],
                         T2=self._classes[2+2*(count%4)])
-
-    def set_dict(self, dict_value):
-        if not isinstance(dict_value, dict):
-            raise Exception(f"dict_value must be dict. Value entered: {type(dict_value)}")
-        self._dict = dict_value
-
-    def change_event_names(self, task_data, file):
-        classes_name = self.get_classes_name(file)
-        annotations = task_data.annotations
-        new_descriptions = [classes_name[description] for description in annotations.description]
-        new_annotations = mne.Annotations(onset=annotations.onset,
-                                  duration=annotations.duration,
-                                  description=new_descriptions,
-                                  orig_time=annotations.orig_time,
-                                  ch_names=annotations.ch_names)
-
-        # Assign the new annotations to the raw object
-        task_data.set_annotations(new_annotations)
-        return task_data
 
     def fetch_events(self, data_filtered, tmin=-1., tmax=4.):
         event_ids = self._dict
@@ -96,7 +74,6 @@ class preprocess:
 
         for file in files:
             task_data = mne.io.read_raw_edf(file, preload=True)
-            task_data = self.change_event_names(task_data, file)
             if sfreq is None:
                 sfreq = task_data.info["sfreq"]
             if task_data.info["sfreq"] == sfreq:
