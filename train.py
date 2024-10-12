@@ -12,11 +12,21 @@ from sklearn.multiclass import OneVsRestClassifier
 import numpy as np
 import pickle
 
+def get_classifiers():
+    return [
+        OneVsRestClassifier(LogisticRegression(penalty='l1', solver='liblinear')),
+        OneVsRestClassifier(SVC(kernel='linear', probability=True)),
+        OneVsRestClassifier(RandomForestClassifier(random_state=42)),
+        OneVsRestClassifier(GradientBoostingClassifier()),
+        OneVsRestClassifier(KNeighborsClassifier()),
+        OneVsRestClassifier(MLPClassifier())
+    ]
+
 class train:
     def __init__(self, clf=None) -> None:
         csp = CSP()
         if clf is None:
-            clf = OneVsRestClassifier(LogisticRegression(max_iter=100))
+            clf = get_classifiers()[0]
 
         self._pipeline = Pipeline([
             ('csp', csp),
@@ -40,20 +50,8 @@ class train:
     def pipeline(self):
         return self._pipeline
 
-def launch(preprocessmodule : preprocess, subject_path, train_module):
-        labels, epochs = preprocessmodule.process(subject_path)
-        epochs_data_train = epochs.get_data()
-        return train_module.fit(epochs_data_train, labels)
-
 def training_All_Data(preprocessmodule : preprocess, path):
-    classifiers = [
-        OneVsRestClassifier(LogisticRegression(max_iter=100)),
-        OneVsRestClassifier(SVC(kernel='linear', probability=True)),
-        OneVsRestClassifier(RandomForestClassifier(n_estimators=100)),
-        OneVsRestClassifier(GradientBoostingClassifier(n_estimators=100)),
-        OneVsRestClassifier(KNeighborsClassifier(n_neighbors=5)),
-        OneVsRestClassifier(MLPClassifier(max_iter=100))
-    ]
+    classifiers = get_classifiers()
     train_modules = []
     print("Training on all subjects...")
     subjects_path = sorted(glob.glob(os.path.join(path, "S[0-9][0-9][0-9]")))
@@ -64,7 +62,8 @@ def training_All_Data(preprocessmodule : preprocess, path):
         if len(subjects_path) == 0:
             raise Exception(f"No subjects found in {path}")
         for subject_path in subjects_path:
-            accuracy, _ = launch(preprocessmodule, subject_path, train_module)
+            labels, epochs_data_train = preprocessmodule.process(subject_path)
+            accuracy, _ = train_module.fit(epochs_data_train, labels)
             accuracies.append(accuracy)
             print(f"experiment {key}/{len(classifiers)}: subject {subject_path[-4:]}: accuracy = {accuracy:.4f}")
         mean_accuracy = np.mean(accuracies)
@@ -75,7 +74,7 @@ def training_All_Data(preprocessmodule : preprocess, path):
     mean_accuracy = np.mean(experiments_accuracies)
     print("Mean accuracy of the six different experiments for all 109 subjects:")
     for key, accuracy in enumerate(experiments_accuracies):
-        print(f"experiment {key}:           accuracy = {accuracy:.4f}")
+        print(f"experiment {key}/{len(experiments_accuracies)}:{" "*10} accuracy = {accuracy:.4f}")
     print("", f"Mean accuracy of 6 experiments: {mean_accuracy}", sep='\n')
     best_module : train = train_modules[experiments_accuracies.index(max(experiments_accuracies))]
     return best_module
@@ -83,7 +82,8 @@ def training_All_Data(preprocessmodule : preprocess, path):
 def training(preprocessmodule : preprocess, path, multiple_subjects=False):
     if not multiple_subjects:
         train_module = train()
-        return launch(preprocessmodule, path, train_module)
+        labels, epochs_data_train = preprocessmodule.process(subject_path)
+        return train_module.fit(epochs_data_train, labels)
     else:
         best_module, mean_accuracy = training_All_Data(preprocessmodule, path)
 

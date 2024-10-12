@@ -2,17 +2,54 @@ import mne, os, glob
 import matplotlib.pyplot as plt
 from mne.channels import make_standard_montage
 from mne.datasets import eegbci
+import numpy as np
 
 class preprocess:
     def __init__(self, plot=False):
-        self._dict = dict(T0=0, T1=1, T2=2)
+        self._classes = [
+            "Rest",
+            "Open left fist",
+            "Open right fist",
+            "Imagine left fist",
+            "Imagine right fist",
+            "Open both fists",
+            "Open both feet",
+            "Imagine both fists",
+            "Imagine both feet"
+        ]
+        self._dict = {classe:key for key, classe in enumerate(self._classes)}
         self._plot = plot
         mne.set_log_level('WARNING')
+
+    def get_classes_name(self, filepath : str):
+        dot = filepath.find('.')
+        file_num = int(filepath[dot-2:dot])
+        if file_num <= 2:
+            return dict(T0=self._classes[0])
+        else:
+            count = file_num - 3
+            return dict(T0=self._classes[0],
+                        T1=self._classes[1+2*(count%4)],
+                        T2=self._classes[2+2*(count%4)])
 
     def set_dict(self, dict_value):
         if not isinstance(dict_value, dict):
             raise Exception(f"dict_value must be dict. Value entered: {type(dict_value)}")
         self._dict = dict_value
+
+    def change_event_names(self, task_data, file):
+        classes_name = self.get_classes_name(file)
+        annotations = task_data.annotations
+        new_descriptions = [classes_name[description] for description in annotations.description]
+        new_annotations = mne.Annotations(onset=annotations.onset,
+                                  duration=annotations.duration,
+                                  description=new_descriptions,
+                                  orig_time=annotations.orig_time,
+                                  ch_names=annotations.ch_names)
+
+        # Assign the new annotations to the raw object
+        task_data.set_annotations(new_annotations)
+        return task_data
 
     def fetch_events(self, data_filtered, tmin=-1., tmax=4.):
         event_ids = self._dict
@@ -21,12 +58,13 @@ class preprocess:
         epochs = mne.Epochs(data_filtered, events, event_ids, tmin, tmax, proj=True,
                             picks=picks, baseline=None, preload=True)
         labels = epochs.events[:, -1]
-        return labels, epochs
+        return labels, epochs.get_data()
 
     def filter_data(self, raw, montage=make_standard_montage('standard_1020')):
         data_filter = raw.copy()
         data_filter.set_montage(montage)
         data_filter.filter(7, 30, fir_design='firwin', skip_by_annotation='edge')
+
         if self._plot:
             print("plotting after modification")
             mne.viz.plot_raw(data_filter, scalings={"eeg": 75e-6}, show=False)
@@ -57,11 +95,12 @@ class preprocess:
             files = [subject_folder_path]
 
         for file in files:
-            subject_data = mne.io.read_raw_edf(file, preload=True)
+            task_data = mne.io.read_raw_edf(file, preload=True)
+            task_data = self.change_event_names(task_data, file)
             if sfreq is None:
-                sfreq = subject_data.info["sfreq"]
-            if subject_data.info["sfreq"] == sfreq:
-                subject.append(subject_data)
+                sfreq = task_data.info["sfreq"]
+            if task_data.info["sfreq"] == sfreq:
+                subject.append(task_data)
             else:
                 raise Exception("A task has different samples frequence number!")
         raw = mne.io.concatenate_raws(subject)

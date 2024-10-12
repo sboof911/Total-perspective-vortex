@@ -62,8 +62,6 @@ def lanch_model(args):
         lanch_tasks(**kwargs)
     else:
         print("Plotting process...")
-        if args.task_num == 1 or args.task_num == 2:
-            preprocessmodule.set_dict(dict(T0=0))
         file_path = f"{folder_path}/S{args.subject_num:03}/S{args.subject_num:03}R{args.task_num:02}.edf"
         if not os.path.exists(file_path):
             raise Exception("file_path don t exist!")
