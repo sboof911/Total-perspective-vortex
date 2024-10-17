@@ -1,113 +1,90 @@
-import argparse, mne, os, glob
-import pandas as pd
+import mne, os, glob
+import matplotlib.pyplot as plt
+from mne.channels import make_standard_montage
+from mne.datasets import eegbci
 import numpy as np
 
-class dataset:
-    def __init__(self, folderpath, tosavepath) -> None:
-        if not os.path.exists(folderpath):
-            raise Exception(f"{folderpath} not found!")
-        if not os.path.exists(tosavepath):
-            os.makedirs(tosavepath)
-        self._datafolderPath = folderpath
-        self._savedata_folderPath = tosavepath
-        self._subjects_paths = sorted(glob.glob(os.path.join(folderpath, "S[0-9][0-9][0-9]")))
-        if len(self._subjects_paths) == 0:
-            raise Exception(f"No subjects found in {folderpath}")
+class preprocess:
+    def __init__(self):
+        self._dict = dict(T0=0, T1=1, T2=2)
+        self._plot = False
+        mne.set_log_level('WARNING')
 
-    def get_filter_data(self, task_path):
-        raw = mne.io.read_raw_edf(task_path,preload=True, verbose='WARNING')
-        raw.filter(1., 40., fir_design='firwin')
-        # Removing eye blinks
-        ica = mne.preprocessing.ICA(n_components=20, random_state=97, max_iter=800)
-        ica.fit(raw)
-        eog_indices, _ = ica.find_bads_eog(raw)
-        ica.exclude = eog_indices
-        raw = ica.apply(raw)
+    def set_plot(self, plot):
+        self._plot = plot
 
+    def set_dict(self, dict_value):
+        if not isinstance(dict_value, dict):
+            raise Exception(f"dict_value must be dict. Value entered: {type(dict_value)}")
+        self._dict = dict_value
+
+    def get_classes_name(self, filepath : str):
+        dot = filepath.rfind('.')
+        file_num = int(filepath[dot-2:dot])
+        if file_num <= 2:
+            return dict(T0=self._classes[0])
+        else:
+            count = file_num - 3
+            return dict(T0=self._classes[0],
+                        T1=self._classes[1+2*(count%4)],
+                        T2=self._classes[2+2*(count%4)])
+
+    def fetch_events(self, data_filtered, tmin=-1., tmax=4.):
+        event_ids = self._dict
+        events, _ = mne.events_from_annotations(data_filtered, event_id=event_ids)
+        picks = mne.pick_types(data_filtered.info, meg=False, eeg=True, stim=False, eog=False, exclude='bads')
+        epochs = mne.Epochs(data_filtered, events, event_ids, tmin, tmax, proj=True,
+                            picks=picks, baseline=None, preload=True)
+        labels = epochs.events[:, -1]
+        return labels, epochs.get_data()
+
+    def filter_data(self, raw, montage=make_standard_montage('standard_1020')):
+        data_filter = raw.copy()
+        data_filter.set_montage(montage)
+        data_filter.filter(7, 30, fir_design='firwin', skip_by_annotation='edge')
+
+        if self._plot:
+            print("plotting after modification")
+            mne.viz.plot_raw(data_filter, scalings={"eeg": 75e-6}, show=False)
+            plt.show()
+        return data_filter
+
+    def prepare_data(self, raw, montage=make_standard_montage('standard_1020')):
+        raw.rename_channels(lambda x: x.strip('.'))
+        eegbci.standardize(raw)
+        raw.set_montage(montage)
+
+        # plot
+        if self._plot:
+            montage = raw.get_montage()
+            print("plotting before modification")
+            montage.plot(show=False)
+            mne.viz.plot_raw(raw, scalings={"eeg": 75e-6}, show=False)
+            plt.show()
         return raw
 
-    def get_dataFrame(self, mne_data):
-        annotations = mne_data.annotations
-        codes = annotations.description
-        df = pd.DataFrame(mne_data.get_data().T, columns=[channel.replace(".","") for channel in mne_data.ch_names])
-        df = df[~(df == 0).all(axis=1)]
-        timeArray = np.array([round(x,5) for x in np.arange(0,len(df)/160,(1/160))])
-        codeArray = []
-        counter = 0
-        for timeVal in timeArray:
-            if timeVal in annotations.onset:
-                counter += 1
-            codeArray.append(codes[counter-1])
+    def fetch_data(self, subject_folder_path, sfreq=None):
+        subject = []
+        if not os.path.isfile(subject_folder_path):
+            files = sorted(glob.glob(os.path.join(subject_folder_path, f"{subject_folder_path[-4:]}R[0-9][0-9].edf")))
+            if len(files) == 0:
+                raise Exception("No tasks found!")
+        else:
+            files = [subject_folder_path]
 
-        df["target"] = np.array(codeArray).T
-        return df
-
-    def fuse_DataFrame(self, global_df : pd.DataFrame, next_df : pd.DataFrame) -> pd.DataFrame:
-        if global_df is None:
-            return next_df
-        if not all(global_df.columns == next_df.columns):
-            raise Exception("columns are different!")
-        return pd.concat([global_df, next_df], axis=0)
-
-    def preprocess_tasks(self, subject_path):
-        tasks_path = sorted(glob.glob(os.path.join(subject_path, f"{subject_path[-4:]}R[0-9][0-9].edf")))
-        DataFrame = None
-        classes = {
-            0: "Rest",
-            1: "Real Left Fist Motion",
-            2: "Real Right Fist Motion",
-            3: "Imagined Left Fist Motion",
-            4: "Imagined Right Fist Motion",
-            5: "Real Both Fists Motion",
-            6: "Real Both Feet Motion",
-            7: "Imagined Both Fists Motion",
-            8: "Imagined Both Feet Motion"
-        }
-        mapping = {
-            0: {'T0': classes[0], 'T1': classes[1], 'T2': classes[2]},
-            1: {'T0': classes[0], 'T1': classes[3], 'T2': classes[4]},
-            2: {'T0': classes[0], 'T1': classes[5], 'T2': classes[6]},
-            3: {'T0': classes[0], 'T1': classes[7], 'T2': classes[8]}
-        }
-        count = -2
-        for task_path in tasks_path:
-            if not os.path.exists(task_path):
-                raise Exception(f"{task_path} not found!")
-            filder_mne_data = self.get_filter_data(task_path)
-            # change target to the named files
-            df = self.get_dataFrame(filder_mne_data)
-            if count >= 0:
-                df['target'] = df['target'].replace(mapping[count % 4])
+        for file in files:
+            task_data = mne.io.read_raw_edf(file, preload=True)
+            if sfreq is None:
+                sfreq = task_data.info["sfreq"]
+            if task_data.info["sfreq"] == sfreq:
+                subject.append(task_data)
             else:
-                df['target'] = df['target'].replace({'T0':classes[0]})
-            count = count + 1
-            DataFrame = self.fuse_DataFrame(DataFrame, df)
-            
+                raise Exception("A task has different samples frequence number!")
+        raw = mne.io.concatenate_raws(subject)
+        return raw
 
-        DataFrame.to_csv("/nfs/homes/amaach/Desktop/Total-perspective-vortex/datatest.csv", index=False) # to change
-
-    def preprocess(self):
-        for subject_path in self._subjects_paths:
-            print(f"subject preprocess: {subject_path}")
-            self.preprocess_tasks(subject_path)
-            break
-
-    def test_plot(self):
-        pass
-
-def get_args():
-    parser = argparse.ArgumentParser(description="Preprocess a EEG signal Data.")
-
-    parser.add_argument("--data_train", type=str, required=True, help="Folder path to the datatrain.")
-    parser.add_argument("--data_save", type=str, required=True, help="Folder path to where save the data.")
-    parser.add_argument("--subject_number", type=int, default=-1, help="Folder path to where save the data.")
-
-    return parser.parse_args()
-
-if __name__ == "__main__":
-    try:
-        args = get_args()
-        data = dataset(args.data_train, args.data_save)
-        data.preprocess()
-    except Exception as e:
-        print(e)
+    def process(self, subject_folder_path):
+        raw = self.fetch_data(subject_folder_path)
+        raw = self.prepare_data(raw)
+        fildered_data = self.filter_data(raw)
+        return self.fetch_events(fildered_data)
