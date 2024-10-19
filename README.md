@@ -2,6 +2,9 @@
 
 This project involves the preprocessing of EEG data and training multiple classifiers to predict different classes of EEG signals. The best-performing model is selected and used to predict on test data, achieving an accuracy of over 60%, as required.
 
+## Dataset
+
+You can download the dataset from the following link: [Physionet EEG Dataset](https://physionet.org/content/eegmmidb/1.0.0/)
 ## Features
 
 - **Preprocessing**: 
